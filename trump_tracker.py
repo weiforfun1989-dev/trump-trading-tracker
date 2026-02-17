@@ -349,11 +349,60 @@ class TrumpTracker:
             pass
         return 0.0
     
-    def send_telegram_alert(self, signal: TradingSignal):
+    def get_recent_posts_summary(self, limit: int = 5) -> str:
+        """获取最近Trump帖子的摘要"""
+        try:
+            url = "https://ix.cnn.io/data/truth-social/truth_archive.json"
+            response = self.session.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            summary = []
+            for i, item in enumerate(data[:limit]):
+                content = item.get("content", "")[:150]  # 截取前150字符
+                if len(item.get("content", "")) > 150:
+                    content += "..."
+                
+                created_str = item.get("created_at", "")
+                try:
+                    # 解析ISO格式时间
+                    created = datetime.fromisoformat(created_str.replace('Z', '+00:00'))
+                    time_ago = (datetime.now() - created.replace(tzinfo=None)).total_seconds() / 3600
+                    if time_ago < 1:
+                        time_str = f"{int(time_ago * 60)}分钟前"
+                    else:
+                        time_str = f"{int(time_ago)}小时前"
+                except:
+                    time_str = "未知时间"
+                
+                # 提取关键词
+                content_lower = content.lower()
+                keywords_found = []
+                for kw in self.KEYWORD_MAPPINGS.keys():
+                    if kw in content_lower:
+                        keywords_found.append(kw)
+                
+                summary.append({
+                    "content": content,
+                    "time": time_str,
+                    "keywords": keywords_found[:3]  # 最多3个关键词
+                })
+            
+            return summary
+        except Exception as e:
+            print(f"   获取摘要失败: {e}")
+            return []
+    
+    def send_telegram_alert(self, signal: TradingSignal, include_summary: bool = True):
         """发送 Telegram 通知"""
         if not self.telegram_token or not self.telegram_chat_id:
             print("   ⚠️  Telegram 未配置，跳过通知")
             return
+        
+        # 获取最近帖子摘要
+        recent_summary = []
+        if include_summary:
+            recent_summary = self.get_recent_posts_summary(5)
         
         # 构建消息
         emoji = "🟢" if signal.signal_type == "buy" else "🔴" if signal.signal_type == "sell" else "🟡"
@@ -379,7 +428,22 @@ class TrumpTracker:
 
 **AI分析**:
 {signal.analysis}
-
+"""
+        
+        # 添加Trump最新动态摘要
+        if recent_summary:
+            message += """
+———————————————————
+📰 **Trump 最新动态摘要**
+"""
+            for i, post in enumerate(recent_summary[:3], 1):
+                keywords_str = f" | 关键词: {', '.join(post['keywords'])}" if post['keywords'] else ""
+                message += f"""
+{i}. [{post['time']}] {post['content'][:100]}{keywords_str}
+"""
+        
+        message += """
+———————————————————
 ⚠️ **免责声明**: 此为AI自动分析，不构成投资建议。请自行判断风险。
 """
         
