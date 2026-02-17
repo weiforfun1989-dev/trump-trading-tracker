@@ -382,10 +382,14 @@ class TrumpTracker:
                     if kw in content_lower:
                         keywords_found.append(kw)
                 
+                # 获取帖子URL
+                post_url = item.get("url", "")
+                
                 summary.append({
                     "content": content,
                     "time": time_str,
-                    "keywords": keywords_found[:3]  # 最多3个关键词
+                    "keywords": keywords_found[:3],  # 最多3个关键词
+                    "url": post_url
                 })
             
             return summary
@@ -438,8 +442,9 @@ class TrumpTracker:
 """
             for i, post in enumerate(recent_summary[:3], 1):
                 keywords_str = f" | 关键词: {', '.join(post['keywords'])}" if post['keywords'] else ""
+                url_str = f"\n   🔗 [查看原文]({post['url']})" if post.get('url') else ""
                 message += f"""
-{i}. [{post['time']}] {post['content'][:100]}{keywords_str}
+{i}. [{post['time']}] {post['content'][:100]}{keywords_str}{url_str}
 """
         
         message += """
