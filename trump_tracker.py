@@ -247,13 +247,29 @@ class TrumpTracker:
             }}
             """
             
-            response = self.openai_client.chat.completions.create(
-                model="anthropic/claude-3.5-haiku",  # OpenRouter model (fast & cheap)
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3
-            )
+            # Try primary model (qwen), then backup (kimi-k2-thinking)
+            models = ["qwen/qwen3-235b-a22b", "kimi-coding/k2-thinking"]
+            result = None
+            last_error = None
             
-            result = json.loads(response.choices[0].message.content)
+            for model in models:
+                try:
+                    print(f"   🔄 尝试模型: {model}")
+                    response = self.openai_client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.3
+                    )
+                    result = json.loads(response.choices[0].message.content)
+                    print(f"   ✅ 模型 {model} 成功")
+                    break
+                except Exception as e:
+                    last_error = e
+                    print(f"   ⚠️  模型 {model} 失败: {e}")
+                    continue
+            
+            if result is None:
+                raise last_error or Exception("所有模型都失败")
             
             post.sentiment = result.get("sentiment", "neutral")
             post.entities = result.get("entities", [])
