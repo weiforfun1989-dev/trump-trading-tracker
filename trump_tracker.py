@@ -113,6 +113,12 @@ class TrumpTracker:
         self.telegram_chat_id = telegram_chat_id
         self.openai_key = openai_key
         
+        # Initialize HTTP session
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        
         if OPENAI_AVAILABLE and openai_key:
             self.openai_client = OpenAI(api_key=openai_key)
         else:
