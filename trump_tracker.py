@@ -566,6 +566,65 @@ class TrumpTracker:
         except Exception as e:
             print(f"   ❌ 发送失败: {e}")
     
+    def send_batched_alert(self, signals: list, posts_analyzed: int):
+        """发送批量信号报告（所有信号合并为一条消息）"""
+        if not signals or not self.telegram_token or not self.telegram_chat_id:
+            return
+        
+        # 只发送置信度 >= 70 的信号
+        high_conf_signals = [s for s in signals if s.confidence >= 70]
+        if not high_conf_signals:
+            return
+        
+        message = f"""
+🟢 **Trump Tracker 交易信号报告** 🟢
+
+**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+**分析帖子数**: {posts_analyzed}
+**检测到信号数**: {len(high_conf_signals)}
+
+**信号详情**:
+"""
+        
+        for i, signal in enumerate(high_conf_signals[:5], 1):  # 最多显示5个
+            emoji = "🟢" if signal.signal_type == "buy" else "🔴" if signal.signal_type == "sell" else "🟡"
+            stars = "⭐" * (signal.confidence // 20)
+            message += f"""
+{i}. {emoji} **{signal.signal_type.upper()}** | 置信度: {signal.confidence}/100 {stars}
+   关键词: {', '.join(signal.trigger_keywords)}
+   标的: {', '.join([a['symbol'] for a in signal.target_assets])}
+"""
+        
+        # 添加最新动态摘要
+        recent_summary = self.get_recent_posts_summary(3)
+        if recent_summary:
+            message += """
+📰 **相关Trump动态**:
+"""
+            for post in recent_summary:
+                url_str = f" 🔗[原文]({post.get('url', '')})" if post.get('url') else ""
+                content = post.get('content', '')[:80]
+                message += f"\n• [{post.get('time', '')}] {content}...{url_str}"
+        
+        message += """
+
+———————————————————
+⚠️ **免责声明**: 此为AI自动分析，不构成投资建议。
+"""
+        
+        try:
+            url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
+            payload = {
+                "chat_id": self.telegram_chat_id,
+                "text": message,
+                "parse_mode": "Markdown"
+            }
+            response = requests.post(url, json=payload, timeout=10)
+            if response.status_code == 200:
+                print(f"   ✅ 批量信号报告已发送 ({len(high_conf_signals)}个信号)")
+        except Exception as e:
+            print(f"   ❌ 发送失败: {e}")
+
     def run_once(self):
         """运行一次检查"""
         print(f"\n{'='*60}")
@@ -578,8 +637,8 @@ class TrumpTracker:
         # 1. 获取新帖子
         new_posts = self.fetch_truth_social()
         
-        # 2. 分析每个帖子
-        for post in new_posts:
+        # 2. 分析每个帖子（收集所有信号，不立即发送）
+        for post in new_posts[:10]:  # 最多分析10条，防止过多
             print(f"\n📝 新帖子 [{post.id}]: {post.content[:60]}...")
             
             # AI分析
@@ -590,22 +649,26 @@ class TrumpTracker:
             
             posts_analyzed.append(post)
             
-            # 生成交易信号
+            # 生成交易信号（只收集，不发送）
             signal = self.generate_signal(analyzed_post)
-            if signal:
+            if signal and signal.confidence >= 70:  # 只保留高置信度信号
                 print(f"   🚨 生成交易信号！置信度: {signal.confidence}%")
-                self.send_telegram_alert(signal)
                 signals_generated.append(signal)
             else:
-                print(f"   ℹ️  无交易信号")
+                print(f"   ℹ️  无交易信号或置信度太低")
         
         # 3. 检查 DJT 股票
         self.check_djt_stock()
         
-        # 4. 如果没有交易信号，发送无信号报告
-        if not signals_generated and posts_analyzed:
-            print("\n📤 无交易信号，发送定期报告...")
-            recent_summary = self.get_recent_posts_summary(5)
+        # 4. 发送消息（只发送一次！）
+        if signals_generated:
+            # 有信号：发送批量信号报告
+            print(f"\n📤 发送批量信号报告 ({len(signals_generated)}个信号)...")
+            self.send_batched_alert(signals_generated, len(posts_analyzed))
+        elif posts_analyzed:
+            # 无信号：发送定期报告
+            print("\n📤 无高置信度信号，发送定期报告...")
+            recent_summary = self.get_recent_posts_summary(3)
             self.send_no_signal_report(len(posts_analyzed), recent_summary)
         
         # 更新时间
