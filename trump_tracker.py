@@ -501,11 +501,59 @@ class TrumpTracker:
         except Exception as e:
             print(f"   获取DJT价格失败: {e}")
     
+    def send_no_signal_report(self, posts_analyzed: int, latest_posts: list):
+        """发送无信号报告"""
+        if not self.telegram_token or not self.telegram_chat_id:
+            return
+        
+        message = f"""
+⚪ **Trump Tracker 4小时报告** ⚪
+
+**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+**分析帖子数**: {posts_analyzed}
+**交易信号**: ❌ 无
+
+最近4小时内 Trump 未提及任何与交易相关的关键词。
+
+"""
+        
+        # 添加最新动态摘要（即使无信号也显示）
+        if latest_posts:
+            message += """📰 **Trump 最新动态摘要**\n"""
+            for i, post in enumerate(latest_posts[:3], 1):
+                url_str = f"\n   🔗 [查看原文]({post.get('url', '')})" if post.get('url') else ""
+                content = post.get('content', '')[:100]
+                time_str = post.get('time', '未知时间')
+                message += f"""
+{i}. [{time_str}] {content}...{url_str}
+"""
+        
+        message += """
+———————————————————
+💡 提示: 当 Trump 提及股票、加密货币、关税等关键词时，将发送交易信号。
+"""
+        
+        try:
+            url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
+            payload = {
+                "chat_id": self.telegram_chat_id,
+                "text": message,
+                "parse_mode": "Markdown"
+            }
+            response = requests.post(url, json=payload, timeout=10)
+            if response.status_code == 200:
+                print("   ✅ 无信号报告已发送")
+        except Exception as e:
+            print(f"   ❌ 发送失败: {e}")
+    
     def run_once(self):
         """运行一次检查"""
         print(f"\n{'='*60}")
         print(f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Trump Tracker")
         print(f"{'='*60}\n")
+        
+        signals_generated = []
+        posts_analyzed = []
         
         # 1. 获取新帖子
         new_posts = self.fetch_truth_social()
@@ -520,17 +568,25 @@ class TrumpTracker:
             print(f"   实体: {', '.join(analyzed_post.entities) if analyzed_post.entities else 'None'}")
             print(f"   信号: {analyzed_post.trading_signal}")
             
+            posts_analyzed.append(post)
+            
             # 生成交易信号
             signal = self.generate_signal(analyzed_post)
             if signal:
                 print(f"   🚨 生成交易信号！置信度: {signal.confidence}%")
                 self.send_telegram_alert(signal)
-                self.signals.append(signal)
+                signals_generated.append(signal)
             else:
                 print(f"   ℹ️  无交易信号")
         
         # 3. 检查 DJT 股票
         self.check_djt_stock()
+        
+        # 4. 如果没有交易信号，发送无信号报告
+        if not signals_generated and posts_analyzed:
+            print("\n📤 无交易信号，发送定期报告...")
+            recent_summary = self.get_recent_posts_summary(5)
+            self.send_no_signal_report(len(posts_analyzed), recent_summary)
         
         # 更新时间
         self.last_check_time = datetime.now()
