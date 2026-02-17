@@ -121,12 +121,65 @@ class TrumpTracker:
         self.last_check_time = datetime.now() - timedelta(hours=1)
         
     def fetch_truth_social(self) -> List[TrumpPost]:
-        """获取 Truth Social 帖子 (模拟数据，实际需调用API)"""
-        # 这里应该调用 Truth Social API
-        # 由于没有官方API，实际使用时需要爬取或第三方服务
-        print("📡 检查 Truth Social 新帖子...")
+        """获取 Truth Social 帖子 (使用 CNN 实时存档)"""
+        print("📡 从 CNN 存档获取 Truth Social 新帖子...")
         
-        # 模拟最近帖子 (实际项目中这里会调用真实API)
+        try:
+            # CNN 维护的实时 Trump 帖子存档 (每5分钟更新)
+            url = "https://ix.cnn.io/data/truth-social/truth_archive.json"
+            response = self.session.get(url, timeout=15)
+            response.raise_for_status()
+            
+            data = response.json()
+            posts = []
+            
+            # CNN 格式: 通常是对象列表，每个对象有 content, created_at 等字段
+            for item in data:
+                # 处理不同可能的格式
+                content = item.get("content") or item.get("text") or item.get("body", "")
+                post_id = item.get("id") or item.get("post_id") or f"ts_{hash(content) % 10000}"
+                created_str = item.get("created_at") or item.get("date") or item.get("timestamp")
+                
+                if not content:
+                    continue
+                
+                # 解析时间
+                try:
+                    # 尝试多种时间格式
+                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"]:
+                        try:
+                            created_at = datetime.strptime(created_str, fmt)
+                            break
+                        except:
+                            continue
+                    else:
+                        # 如果是时间戳
+                        try:
+                            created_at = datetime.fromtimestamp(int(created_str))
+                        except:
+                            created_at = datetime.now() - timedelta(hours=1)
+                except:
+                    created_at = datetime.now() - timedelta(hours=1)
+                
+                # 只获取最近的新帖子
+                if created_at > self.last_check_time:
+                    posts.append(TrumpPost(
+                        id=str(post_id),
+                        content=content,
+                        created_at=created_at,
+                        source="truth_social"
+                    ))
+            
+            print(f"   找到 {len(posts)} 条新帖子")
+            return posts
+            
+        except Exception as e:
+            print(f"   ⚠️  获取 CNN 数据失败: {e}")
+            print("   使用备用模拟数据...")
+            return self._fetch_mock_data()
+    
+    def _fetch_mock_data(self) -> List[TrumpPost]:
+        """备用模拟数据"""
         mock_posts = [
             {
                 "id": "ts_001",
@@ -143,11 +196,6 @@ class TrumpTracker:
                 "content": "Bitcoin is the future. The US will be the crypto capital of the world!",
                 "created_at": datetime.now() - timedelta(hours=5),
             },
-            {
-                "id": "ts_004",
-                "content": "Tesla builds the best cars. Elon is doing an incredible job!",
-                "created_at": datetime.now() - timedelta(hours=8),
-            },
         ]
         
         posts = []
@@ -159,8 +207,6 @@ class TrumpTracker:
                     created_at=p["created_at"],
                     source="truth_social"
                 ))
-        
-        print(f"   找到 {len(posts)} 条新帖子")
         return posts
     
     def analyze_with_ai(self, post: TrumpPost) -> TrumpPost:
