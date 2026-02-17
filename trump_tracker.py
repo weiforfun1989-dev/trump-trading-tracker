@@ -120,7 +120,11 @@ class TrumpTracker:
         })
         
         if OPENAI_AVAILABLE and openai_key:
-            self.openai_client = OpenAI(api_key=openai_key)
+            # Use OpenRouter instead of OpenAI directly
+            self.openai_client = OpenAI(
+                api_key=openai_key,
+                base_url="https://openrouter.ai/api/v1"
+            )
         else:
             self.openai_client = None
             
@@ -244,7 +248,7 @@ class TrumpTracker:
             """
             
             response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="anthropic/claude-3.5-haiku",  # OpenRouter model (fast & cheap)
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3
             )
@@ -632,7 +636,13 @@ def main():
     # 从环境变量获取配置
     telegram_token = os.getenv('TELEGRAM_BOT_TOKEN', '')
     telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID', '')
-    openai_key = os.getenv('OPENAI_API_KEY', '')
+    # 优先使用 OpenRouter, 其次 OpenAI
+    openai_key = os.getenv('OPENROUTER_API_KEY', '') or os.getenv('OPENAI_API_KEY', '')
+    
+    if os.getenv('OPENROUTER_API_KEY'):
+        print("🔌 使用 OpenRouter API")
+    elif os.getenv('OPENAI_API_KEY'):
+        print("🔌 使用 OpenAI API")
     
     # 创建追踪器
     tracker = TrumpTracker(
